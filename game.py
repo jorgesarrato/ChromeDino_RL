@@ -6,18 +6,36 @@ import pygame
 import random
 import os
 
+ASSETS = {'DinoRun': [pygame.image.load(os.path.join("Assets/Dino", "DinoRun1.png")),
+                            pygame.image.load(os.path.join("Assets/Dino", "DinoRun2.png"))],
+          'DinoJump': pygame.image.load(os.path.join("Assets/Dino", "DinoJump.png")),
+          'DinoDuck': [pygame.image.load(os.path.join("Assets/Dino", "DinoDuck1.png")),
+                       pygame.image.load(os.path.join("Assets/Dino", "DinoDuck2.png"))],
+          'CactusSmall': [pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus1.png")),
+                          pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus2.png")),
+                          pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus3.png"))],
+          'CactusLarge': [pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus1.png")),
+                          pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus2.png")),
+                          pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus3.png"))],
+          'Bird': [pygame.image.load(os.path.join("Assets/Bird", "Bird1.png")),
+                  pygame.image.load(os.path.join("Assets/Bird", "Bird2.png"))],
+          'Track': pygame.image.load(os.path.join("Assets/Other", "Track.png"))
+          }
+
 class DinoGame:
     def __init__(self):
         self.time = 0 
         self.score = 0
-        self.game_speed = 8
-        self.jump_velocity = 26
-        self.gravity = 2
+        self.game_speed = 10
+        self.jump_velocity = 39
+        self.gravity = 3
         self.screen_size = (800, 600)
         self.dinosaur = Dinosaur(self.gravity, self.jump_velocity)
         self.background = Background()
         self.obstacles = []
         self.SCREEN = pygame.display.set_mode(self.screen_size)
+        self.done = False
+        self.collision = False
 
     def reset(self):
         pass
@@ -27,7 +45,6 @@ class DinoGame:
         self.background.draw(self.SCREEN)
         self.dinosaur.draw(self.SCREEN)
         for obstacle in self.obstacles:
-            print("Drawing obstacle at position:", obstacle.rect.x)
             obstacle.draw(self.SCREEN)
 
     def update(self, userInput):
@@ -38,9 +55,26 @@ class DinoGame:
             if obstacle.rect.x < -obstacle.rect.width:
                 self.obstacles.remove(obstacle)
         self.generate_obstacle()
-
+        if self.check_collision():
+            self.collision = True
+            self.done = True
+            self.lose()
+            
     def get_observation(self):
         pass
+
+    def lose(self):
+        print("Game Over! Your score was:", self.score)
+        pygame.quit()
+
+
+    def check_collision(self):
+        for obstacle in self.obstacles:
+            if self.dinosaur.dino_rect.colliderect(obstacle.rect):
+                self.collision = True
+                print("Collision detected with obstacle at position:", obstacle.rect.x)
+                return True
+        return False
 
     def generate_obstacle(self):
         # Randomly decide if we are adding an obstacle
@@ -62,7 +96,7 @@ class DinoGame:
 
 class Background:
     def __init__(self):
-        self.image = pygame.image.load(os.path.join("Assets/Other", "Track.png"))
+        self.image = ASSETS['Track']
         self.x_pos = 0
         self.y_pos = 380
         self.width = self.image.get_width()
@@ -86,11 +120,9 @@ class Dinosaur:
     def __init__(self, gravity, jump_velocity):
         self.gravity = gravity
         self.jump_velocity = jump_velocity
-        self.running_imgs = [pygame.image.load(os.path.join("Assets/Dino", "DinoRun1.png")),
-                            pygame.image.load(os.path.join("Assets/Dino", "DinoRun2.png"))]
-        self.jumping_img = pygame.image.load(os.path.join("Assets/Dino", "DinoJump.png"))
-        self.ducking_imgs = [pygame.image.load(os.path.join("Assets/Dino", "DinoDuck1.png")),
-           pygame.image.load(os.path.join("Assets/Dino", "DinoDuck2.png"))]
+        self.running_imgs = ASSETS['DinoRun']
+        self.jumping_img = ASSETS['DinoJump']
+        self.ducking_imgs = ASSETS['DinoDuck']
         
         self.state = 'run'  # Possible states: 'jumping', 'ducking', 'running'
         self.y_velocity = 0 
@@ -174,9 +206,7 @@ class Obstacle:
 
 
 class SmallCactus(Obstacle):
-    image = [pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus1.png")),
-                pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus2.png")),
-                pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus3.png"))]
+    image = ASSETS['CactusSmall']
     def __init__(self, SCREEN_WIDTH):
         self.type = 1
         super().__init__(self.image, self.type, SCREEN_WIDTH)
@@ -184,9 +214,7 @@ class SmallCactus(Obstacle):
 
 
 class LargeCactus(Obstacle):
-    image = [pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus1.png")),
-                pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus2.png")),
-                pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus3.png"))]
+    image = ASSETS['CactusLarge']
     def __init__(self, SCREEN_WIDTH):
         self.type = 2
         super().__init__(self.image, self.type, SCREEN_WIDTH)
@@ -195,8 +223,7 @@ class LargeCactus(Obstacle):
 
 class Bird(Obstacle):
     frames_per_image = 5  # Number of frames per image for running animation
-    image = [pygame.image.load(os.path.join("Assets/Bird", "Bird1.png")),
-        pygame.image.load(os.path.join("Assets/Bird", "Bird2.png"))]
+    image = ASSETS['Bird']
 
     def __init__(self, SCREEN_WIDTH):
         self.type = 0
