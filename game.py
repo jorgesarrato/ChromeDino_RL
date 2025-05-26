@@ -38,18 +38,23 @@ ASSETS = {'DinoRun': [pygame.image.load(os.path.join("Assets/Dino", "DinoRun1.pn
           }
 
 class DinoGame:
-    def __init__(self):
+    def __init__(self, show_screen=True):
         self.time = 0 
-        self.game_speed = 10
+        self.game_speed = 30
         self.jump_velocity = 20
         self.gravity = 2
         self.screen_size = (1100, 600)
         self.dinosaur = Dinosaur(self.gravity, self.jump_velocity)
         self.background = Background()
         self.obstacles = []
-        self.SCREEN = pygame.display.set_mode(self.screen_size)
+        if show_screen:
+            self.SCREEN = pygame.display.set_mode(self.screen_size)
+        else:
+            self.SCREEN = pygame.Surface((self.screen_size[0], self.screen_size[1]))
         self.done = False
         self.collision = False
+        self.observation_mode = 'easy'
+        self.max_time = 10000
 
     def reset(self):
         self.time = 0
@@ -72,9 +77,9 @@ class DinoGame:
             self.display_vision(vision)
         elif show_rays:
             _ = self.get_vision(self.SCREEN, draw=True, return_color=False)
-        font = pygame.font.Font(None, 36)
+        """font = pygame.font.Font(None, 36)
         score_text = font.render(f'Score: {self.time}', True, (0, 0, 0))
-        self.SCREEN.blit(score_text, (10, 10))
+        self.SCREEN.blit(score_text, (10, 10))"""
         pygame.display.flip()
 
     def display_vision(self, vision):
@@ -111,12 +116,39 @@ class DinoGame:
         if self.check_collision():
             self.collision = True
             self.done = True
-            self.lose()
+        if self.time >= self.max_time:
+            self.done = True
         self.time += 1
+
+    def reward(self):
+        # Initialize storage for passed obstacles if not already present
+        if not hasattr(self, 'passed_obstacles'):
+            self.passed_obstacles = set()
+        if not hasattr(self, 'passed_types'):
+            self.passed_types = set()
+
+        # Check for newly passed obstacles
+        reward = 0.01
+
+        return reward
             
     def get_observation(self):
-        vision = self.get_vision(self.SCREEN, draw=False, return_color=True)
-        pass
+        #vision = self.get_vision(self.SCREEN, draw=False, return_color=True)
+        if self.observation_mode == 'easy':
+            # Return distance to the first obstacle in front of the dinosaur, type of obstacle, flag for ducking, and height of the dinosaur
+            first_obstacle = None
+            for obstacle in self.obstacles:
+                if obstacle.rect.x > self.dinosaur.dino_rect.x:
+                    first_obstacle = obstacle
+                    break
+            if first_obstacle is not None:
+                distance = first_obstacle.rect.x
+                obstacle_type = first_obstacle.type
+            ducking = 1 if self.dinosaur.state == 'ducking' else 0
+            height = self.dinosaur.dino_rect.y
+
+            observation = np.array([distance if first_obstacle is not None else -1])
+        return observation
 
     def get_vision(self, SCREEN, draw=True, return_color=False):
 
@@ -141,8 +173,6 @@ class DinoGame:
     def check_collision(self):
         for obstacle in self.obstacles:
             if self.dinosaur.dino_rect.colliderect(obstacle.rect):
-                self.collision = True
-                print("Collision detected with obstacle at position:", obstacle.rect.x)
                 return True
         return False
 
@@ -155,7 +185,7 @@ class DinoGame:
         if random.random() > 0.85:
             return
 
-        obstacle_type = random.choice(['small_cactus', 'large_cactus', 'bird'])
+        obstacle_type = random.choice(['small_cactus'])
         if obstacle_type == 'small_cactus':
             obstacle = SmallCactus(self.screen_size[0])
         elif obstacle_type == 'large_cactus':
@@ -438,4 +468,157 @@ def play_game():
 
     pygame.quit()
 
-play_game()
+#play_game()
+
+class GymEnv_Dino:
+    def __init__(self, game):
+        self.game = game
+        self.action_space = [pygame.K_UP, pygame.K_DOWN]
+        self.observation_space = np.zeros((N_RAYS, 3), dtype=np.float32)
+
+    def reset(self):
+        self.game.reset()
+        return self.game.get_observation()
+
+    def step(self, action):
+        userInput = {pygame.K_UP: False,
+                      pygame.K_DOWN: False}
+        if action == 0:  # Jump
+            userInput[pygame.K_UP] = True
+        elif action == 1:  # Duck
+            userInput[pygame.K_DOWN] = True
+        self.game.update(userInput)
+        observation = self.game.get_observation()
+        reward = self.game.reward()
+        done = self.game.done
+        return observation, reward, done, {}
+
+    def render(self):
+        self.game.render(show_rays=False, show_vision=False)
+
+    def close(self):
+        pygame.quit()
+
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+import random
+from collections import deque
+
+
+
+# Q-Network
+class DQN(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(DQN, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, output_dim)
+        )
+
+    def forward(self, x):
+        return self.fc(x)
+
+
+def train_dqn(env, episodes=100, gamma=0.99, lr=1e-3, epsilon_decay=0.995,
+              epsilon_min=0.05, batch_size=256, memory_size=10000, target_update=10):
+    
+    input_dim = env.reset().shape[0]
+    output_dim = 2  # actions: 0 (jump), 1 (duck)
+
+    policy_net = DQN(input_dim, output_dim)
+    target_net = DQN(input_dim, output_dim)
+    target_net.load_state_dict(policy_net.state_dict())
+    target_net.eval()
+
+    optimizer = optim.Adam(policy_net.parameters(), lr=lr)
+    memory = deque(maxlen=memory_size)
+
+    epsilon = 1.0
+
+    for episode in range(episodes):
+        obs = env.reset()
+        total_reward = 0
+        done = False
+
+        while not done:
+            if random.random() < epsilon:
+                action = random.randint(0, 1)
+            else:
+                with torch.no_grad():
+                    q_values = policy_net(torch.tensor(obs).float().unsqueeze(0))
+                    action = torch.argmax(q_values).item()
+
+            next_obs, reward, done, _ = env.step(action)
+            memory.append((obs, action, reward, next_obs, done))
+            obs = next_obs
+            total_reward += reward
+
+            # Sample and train
+            if len(memory) >= batch_size:
+                batch = random.sample(memory, batch_size)
+                obs_batch, act_batch, rew_batch, next_batch, done_batch = zip(*batch)
+
+                obs_batch = torch.tensor(obs_batch, dtype=torch.float32)
+                act_batch = torch.tensor(act_batch, dtype=torch.int64).unsqueeze(1)
+                rew_batch = torch.tensor(rew_batch, dtype=torch.float32).unsqueeze(1)
+                next_batch = torch.tensor(next_batch, dtype=torch.float32)
+                done_batch = torch.tensor(done_batch, dtype=torch.float32).unsqueeze(1)
+
+                current_q = policy_net(obs_batch).gather(1, act_batch)
+                max_next_q = target_net(next_batch).max(1)[0].unsqueeze(1)
+                expected_q = rew_batch + gamma * max_next_q * (1 - done_batch)
+
+                loss = nn.MSELoss()(current_q, expected_q)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+        if episode % target_update == 0:
+            target_net.load_state_dict(policy_net.state_dict())
+
+        epsilon = max(epsilon_min, epsilon * epsilon_decay)
+        print(f"Episode {episode}, Total Reward: {total_reward}, Epsilon: {epsilon:.3f}")
+
+    return policy_net
+
+
+def play(env, model, episodes=5):
+    pygame.init()
+    for ep in range(episodes):
+        rewards = 0
+        obs = env.reset()
+        done = False
+        while not done:
+            action = model(torch.tensor(obs).float().unsqueeze(0)).argmax().item()
+            obs, reward, done, _ = env.step(action)
+            print(obs)
+            rewards += reward
+            env.render()
+            pygame.display.flip()
+            pygame.time.delay(30)
+
+        print(f"Episode {ep + 1}, Total Reward: {rewards}")
+
+
+# Initialize pygame screen and game
+#import pygame
+game = DinoGame(show_screen=False)
+env = GymEnv_Dino(game)
+
+# Train the model
+trained_model = train_dqn(env)
+
+game = DinoGame(show_screen=True)
+env = GymEnv_Dino(game)
+
+# Play with the trained model
+play(env, trained_model)
+
+# Quit pygame after playing
+env.close()
