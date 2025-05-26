@@ -10,22 +10,72 @@ class DinoGame:
     def __init__(self):
         self.time = 0 
         self.score = 0
-        self.jump_velocity = 20
+        self.game_speed = 8
+        self.jump_velocity = 26
         self.gravity = 2
         self.screen_size = (800, 600)
         self.dinosaur = Dinosaur(self.gravity, self.jump_velocity)
+        self.background = Background()
         self.obstacles = []
         self.SCREEN = pygame.display.set_mode(self.screen_size)
+
     def reset(self):
         pass
+
     def render(self):
+        self.SCREEN.fill((255, 255, 255))
+        self.background.draw(self.SCREEN)
         self.dinosaur.draw(self.SCREEN)
-    def update(self):
+        for obstacle in self.obstacles:
+            print("Drawing obstacle at position:", obstacle.rect.x)
+            obstacle.draw(self.SCREEN)
+
+    def update(self, userInput):
+        self.background.update(self.game_speed)
+        self.dinosaur.update(userInput)
+        for obstacle in self.obstacles:
+            obstacle.update(self.game_speed)
+            if obstacle.rect.x < -obstacle.rect.width:
+                self.obstacles.remove(obstacle)
+        self.generate_obstacle()
+
+    def get_observation(self):
         pass
-    def get_obsercation(self):
-        pass
+
     def generate_obstacle(self):
-        pass
+        # Randomly decide if we are adding an obstacle
+        # Don't generate an obstacle too close to the last one
+        if len(self.obstacles) > 0:
+            return
+        
+        if random.random() > 0.85:
+            return
+
+        obstacle_type = random.choice(['small_cactus', 'large_cactus', 'bird'])
+        if obstacle_type == 'small_cactus':
+            obstacle = SmallCactus(self.screen_size[0])
+        elif obstacle_type == 'large_cactus':
+            obstacle = LargeCactus(self.screen_size[0])
+        else:
+            obstacle = Bird(self.screen_size[0])
+        self.obstacles.append(obstacle)
+
+class Background:
+    def __init__(self):
+        self.image = pygame.image.load(os.path.join("Assets/Other", "Track.png"))
+        self.x_pos = 0
+        self.y_pos = 380
+        self.width = self.image.get_width()
+        self.height = self.image.get_height()
+
+    def draw(self, SCREEN):
+        SCREEN.blit(self.image, (self.x_pos, self.y_pos))
+        SCREEN.blit(self.image, (self.x_pos + self.width, self.y_pos))
+
+    def update(self, game_speed):
+        self.x_pos -= game_speed
+        if self.x_pos <= -self.width:
+            self.x_pos = 0
 
 class Dinosaur:
     X_POS = 80
@@ -108,6 +158,59 @@ class Dinosaur:
     def draw(self, SCREEN):
         SCREEN.blit(self.image, (self.dino_rect.x, self.dino_rect.y))
 
+
+class Obstacle:
+    def __init__(self, image, type, SCREEN_WIDTH):
+        self.image = image
+        self.type = type
+        self.rect = self.image[self.type].get_rect()
+        self.rect.x = SCREEN_WIDTH
+
+    def update(self, game_speed):
+        self.rect.x -= game_speed
+
+    def draw(self, SCREEN):
+        SCREEN.blit(self.image[self.type], self.rect)
+
+
+class SmallCactus(Obstacle):
+    image = [pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus1.png")),
+                pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus2.png")),
+                pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus3.png"))]
+    def __init__(self, SCREEN_WIDTH):
+        self.type = 1
+        super().__init__(self.image, self.type, SCREEN_WIDTH)
+        self.rect.y = 325
+
+
+class LargeCactus(Obstacle):
+    image = [pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus1.png")),
+                pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus2.png")),
+                pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus3.png"))]
+    def __init__(self, SCREEN_WIDTH):
+        self.type = 2
+        super().__init__(self.image, self.type, SCREEN_WIDTH)
+        self.rect.y = 300
+
+
+class Bird(Obstacle):
+    frames_per_image = 5  # Number of frames per image for running animation
+    image = [pygame.image.load(os.path.join("Assets/Bird", "Bird1.png")),
+        pygame.image.load(os.path.join("Assets/Bird", "Bird2.png"))]
+
+    def __init__(self, SCREEN_WIDTH):
+        self.type = 0
+        super().__init__(self.image, self.type, SCREEN_WIDTH)
+        self.rect.y = 250
+        self.index = 0
+        
+
+    def draw(self, SCREEN):
+        if self.index >= 2* self.frames_per_image:
+            self.index = 0
+        SCREEN.blit(self.image[self.index//self.frames_per_image], self.rect)
+        self.index += 1
+
 def play_game():
     pygame.init()
     game = DinoGame()
@@ -120,11 +223,8 @@ def play_game():
                 running = False
         
         userInput = pygame.key.get_pressed()
-        game.dinosaur.update(userInput)
-        
-        game.SCREEN.fill((255, 255, 255))
+        game.update(userInput)
         game.render()
-        
         pygame.display.flip()
         clock.tick(30)
 
