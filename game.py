@@ -8,181 +8,233 @@ import os
 import math
 import numpy as np
 
-FLOOR_COLOR = (0, 255, 0)
-OBSTACLE_COLOR = (255, 0, 0)
-BIRD_COLOR = (0, 0, 255)
-SKY_COLOR = (255, 255, 255)
+FLOOR_COLOR    = (0, 200, 0)
+OBSTACLE_COLOR = (200, 40, 40)
+BIRD_COLOR     = (40, 40, 200)
+SKY_COLOR      = (255, 255, 255)
+
+DINO_COLOR        = (80, 80, 80)
+CACTUS_SMALL_COLOR = (34, 139, 34)
+CACTUS_LARGE_COLOR = (0, 100, 0)
+BIRD_RECT_COLOR   = (30, 30, 180)
+TRACK_COLOR       = (160, 160, 160)
 
 INIT_SPEED = 15
-MAX_SPEED = 50
-SPEED_INC = 0.01
+MAX_SPEED  = 50
+SPEED_INC  = 0.01
 
-SCREEN_WIDTH = 1100
+SCREEN_WIDTH  = 1100
 SCREEN_HEIGHT = 600
 
-N_RAYS = 33
+N_RAYS     = 33
 RAY_LENGTH = 800
-FOV = 60  # Field of View in degrees
+FOV        = 60
 
 ray_angles = [i * (FOV / N_RAYS) for i in range(-N_RAYS // 2, N_RAYS // 2)]
-ray_angles = [angle * (3.14 / 180) for angle in ray_angles]  # Convert to radians
+ray_angles = [a * (math.pi / 180) for a in ray_angles]
+
+ASSETS: dict = {}
+
+def load_assets():
+    global ASSETS
+    ASSETS = {
+        'DinoRun':  [pygame.image.load(os.path.join("Assets/Dino", "DinoRun1.png")),
+                     pygame.image.load(os.path.join("Assets/Dino", "DinoRun2.png"))],
+        'DinoJump':  pygame.image.load(os.path.join("Assets/Dino", "DinoJump.png")),
+        'DinoDuck': [pygame.image.load(os.path.join("Assets/Dino", "DinoDuck1.png")),
+                     pygame.image.load(os.path.join("Assets/Dino", "DinoDuck2.png"))],
+        'CactusSmall': [pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus1.png")),
+                        pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus2.png")),
+                        pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus3.png"))],
+        'CactusLarge': [pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus1.png")),
+                        pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus2.png")),
+                        pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus3.png"))],
+        'Bird': [pygame.image.load(os.path.join("Assets/Bird", "Bird1.png")),
+                 pygame.image.load(os.path.join("Assets/Bird", "Bird2.png"))],
+        'Track': pygame.image.load(os.path.join("Assets/Other", "Track.png")),
+    }
 
 
-ASSETS = {'DinoRun': [pygame.image.load(os.path.join("Assets/Dino", "DinoRun1.png")),
-                            pygame.image.load(os.path.join("Assets/Dino", "DinoRun2.png"))],
-          'DinoJump': pygame.image.load(os.path.join("Assets/Dino", "DinoJump.png")),
-          'DinoDuck': [pygame.image.load(os.path.join("Assets/Dino", "DinoDuck1.png")),
-                       pygame.image.load(os.path.join("Assets/Dino", "DinoDuck2.png"))],
-          'CactusSmall': [pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus1.png")),
-                          pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus2.png")),
-                          pygame.image.load(os.path.join("Assets/Cactus", "SmallCactus3.png"))],
-          'CactusLarge': [pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus1.png")),
-                          pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus2.png")),
-                          pygame.image.load(os.path.join("Assets/Cactus", "LargeCactus3.png"))],
-          'Bird': [pygame.image.load(os.path.join("Assets/Bird", "Bird1.png")),
-                  pygame.image.load(os.path.join("Assets/Bird", "Bird2.png"))],
-          'Track': pygame.image.load(os.path.join("Assets/Other", "Track.png"))
-          }
+class VisualizationConfig:
+
+    def __init__(self,
+                 show_rays:   bool = False,
+                 show_vision: bool = False,
+                 simple_rects: bool = False,
+                 show_help:   bool = True):
+        self.show_rays    = show_rays     # draw raycasting lines
+        self.show_vision  = show_vision   # draw coloured vision bar at bottom
+        self.simple_rects = simple_rects  # replace sprites with solid rectangles
+        self.show_help    = show_help     # overlay keybinding cheatsheet
+
+    def handle_keydown(self, event):
+        if event.key == pygame.K_r:
+            self.show_rays = not self.show_rays
+        elif event.key == pygame.K_v:
+            self.show_vision = not self.show_vision
+        elif event.key == pygame.K_b:
+            self.simple_rects = not self.simple_rects
+        elif event.key == pygame.K_h:
+            self.show_help = not self.show_help
 
 class DinoGame:
-    def __init__(self):
-        self.time = 0 
+    def __init__(self, vis_config: VisualizationConfig | None = None):
+        self.vis = vis_config or VisualizationConfig()
+        self.time       = 0
         self.game_speed = INIT_SPEED
         self.jump_velocity = 25
-        self.gravity = 3
-        self.screen_size = (SCREEN_WIDTH, 600)
-        self.dinosaur = Dinosaur(self.gravity, self.jump_velocity)
-        self.background = Background()
-        self.obstacles = []
+        self.gravity       = 3
+        self.screen_size   = (SCREEN_WIDTH, SCREEN_HEIGHT)
         self.SCREEN = pygame.display.set_mode(self.screen_size)
-        self.done = False
-        self.collision = False
+        pygame.display.set_caption("Dino Run")
+        self._init_objects()
+
+    def _init_objects(self):
+        self.dinosaur  = Dinosaur(self.gravity, self.jump_velocity)
+        self.background = Background()
+        self.obstacles  = []
+        self.done      = False
+        self.collision  = False
 
     def reset(self):
-        self.time = 0
-        self.game_speed = 10
-        self.dinosaur = Dinosaur(self.gravity, self.jump_velocity)
-        self.background = Background()
-        self.obstacles = []
-        self.done = False
-        self.collision = False
+        self.time       = 0
+        self.game_speed = INIT_SPEED
+        self._init_objects()
 
-    def render(self, show_rays=False, show_vision=False):
-        self.SCREEN.fill((255, 255, 255))
-        self.background.draw(self.SCREEN)
-        self.dinosaur.draw(self.SCREEN)
+    def render(self):
+        self.SCREEN.fill(SKY_COLOR)
+        self.background.draw(self.SCREEN, self.vis.simple_rects)
+        self.dinosaur.draw(self.SCREEN, self.vis.simple_rects)
         for obstacle in self.obstacles:
-            obstacle.draw(self.SCREEN)
-        # Display the score
-        if show_vision:
+            obstacle.draw(self.SCREEN, self.vis.simple_rects)
+
+        if self.vis.show_vision:
             vision = self.get_vision(self.SCREEN, draw=True, return_color=True)
-            self.display_vision(vision)
-        elif show_rays:
-            _ = self.get_vision(self.SCREEN, draw=True, return_color=False)
+            self._draw_vision_bar(vision)
+        elif self.vis.show_rays:
+            self.get_vision(self.SCREEN, draw=True, return_color=False)
+
+        self._draw_hud()
+        if self.vis.show_help:
+            self._draw_help()
+        pygame.display.flip()
+
+    def _draw_hud(self):
         font = pygame.font.Font(None, 36)
         score_text = font.render(f'Score: {self.time}', True, (0, 0, 0))
         self.SCREEN.blit(score_text, (10, 10))
-        pygame.display.flip()
 
-    def display_vision(self, vision):
-        # Display vision with a thicker background bar
-        grid_size = 20
-        vision_width = N_RAYS * grid_size
-        vision_height = grid_size
-        bar_height = grid_size * 2  # Make the background bar thicker than the vision grid
-        vision_x = 0
-        vision_y = self.screen_size[1] - bar_height
-        bg_color = (220, 220, 220)
-        line_color = (200, 200, 200)
+        speed_text = font.render(f'Speed: {self.game_speed:.1f}', True, (80, 80, 80))
+        self.SCREEN.blit(speed_text, (10, 45))
 
-        # Draw thick background bar
-        pygame.draw.rect(self.SCREEN, bg_color, (vision_x, vision_y, vision_width, bar_height))
+    def _draw_help(self):
+        lines = [
+            "[R] Rays: " + ("ON" if self.vis.show_rays else "off"),
+            "[V] Vision: " + ("ON" if self.vis.show_vision else "off"),
+            "[B] Rect mode: " + ("ON" if self.vis.simple_rects else "off"),
+            "[H] Hide help",
+        ]
+        font = pygame.font.Font(None, 26)
+        x, y = SCREEN_WIDTH - 200, 10
+        bg = pygame.Surface((190, len(lines) * 22 + 10), pygame.SRCALPHA)
+        bg.fill((0, 0, 0, 100))
+        self.SCREEN.blit(bg, (x - 5, y - 5))
+        for i, line in enumerate(lines):
+            surf = font.render(line, True, (230, 230, 230))
+            self.SCREEN.blit(surf, (x, y + i * 22))
 
-        # Draw the vision grid centered vertically in the bar
-        grid_y = vision_y + (bar_height - vision_height) // 2
+    def _draw_vision_bar(self, vision):
+        grid_size   = 20
+        bar_height  = grid_size * 2
+        vision_y    = self.screen_size[1] - bar_height
+        bg_color    = (220, 220, 220)
+        line_color  = (200, 200, 200)
+        grid_y      = vision_y + (bar_height - grid_size) // 2
+
+        pygame.draw.rect(self.SCREEN, bg_color,
+                         (0, vision_y, N_RAYS * grid_size, bar_height))
         for i in range(N_RAYS):
             color = tuple(int(c) for c in vision[i])
-            rect = (i * grid_size, grid_y, grid_size, vision_height)
+            rect  = (i * grid_size, grid_y, grid_size, grid_size)
             pygame.draw.rect(self.SCREEN, color, rect)
             if i < N_RAYS - 1:
-                pygame.draw.line(self.SCREEN, line_color, (rect[0] + grid_size, grid_y), (rect[0] + grid_size, grid_y + vision_height), 1)
+                pygame.draw.line(self.SCREEN, line_color,
+                                 (rect[0] + grid_size, grid_y),
+                                 (rect[0] + grid_size, grid_y + grid_size), 1)
 
     def update(self, userInput):
         self.background.update(self.game_speed)
         self.dinosaur.update(userInput)
-        for obstacle in self.obstacles:
+        for obstacle in list(self.obstacles):
             obstacle.update(self.game_speed)
             if obstacle.rect.x < -obstacle.rect.width:
                 self.obstacles.remove(obstacle)
         self.generate_obstacle()
         if self.check_collision():
             self.collision = True
-            self.done = True
+            self.done      = True
             self.lose()
         self.time += 1
-        self.game_speed = min([self.game_speed+SPEED_INC, MAX_SPEED])
-            
+        self.game_speed = min(self.game_speed + SPEED_INC, MAX_SPEED)
+
     def get_observation(self):
-        vision = self.get_vision(self.SCREEN, draw=False, return_color=True)
-        pass
+        return self.get_vision(self.SCREEN, draw=False, return_color=True)
 
     def get_vision(self, SCREEN, draw=True, return_color=False):
-
-        ray_start_offset = (55, +10)
-
+        ray_start_offset = (55, 10)
         vision = np.zeros((N_RAYS, 3))
-
-        for ii,an in enumerate(ray_angles):
-            ray = RayCast(self.dinosaur.dino_rect.x+ray_start_offset[0], self.dinosaur.dino_rect.y+ray_start_offset[1], an, RAY_LENGTH)
+        ox = self.dinosaur.dino_rect.x + ray_start_offset[0]
+        oy = self.dinosaur.dino_rect.y + ray_start_offset[1]
+        for ii, an in enumerate(ray_angles):
+            ray = RayCast(ox, oy, an, RAY_LENGTH)
             if draw:
                 ray.draw(SCREEN)
             first_obstacle = ray.find_first_obstacle(self.obstacles)
-
-            vision[ii,:]  = ray.draw_intersection(SCREEN, first_obstacle, draw = draw, return_color = return_color)
+            result = ray.draw_intersection(SCREEN, first_obstacle,
+                                           draw=draw, return_color=return_color)
+            if result is not None:
+                vision[ii, :] = result
         return vision
 
     def lose(self):
-        print("Game Over! Your score was:", self.time)
+        print(f"Game Over! Your score was: {self.time}")
         pygame.quit()
-
 
     def check_collision(self):
         for obstacle in self.obstacles:
             if self.dinosaur.dino_rect.colliderect(obstacle.rect):
-                self.collision = True
-                print("Collision detected with obstacle at position:", obstacle.rect.x)
                 return True
         return False
 
     def generate_obstacle(self):
-        # Randomly decide if we are adding an obstacle
-        # Don't generate an obstacle too close to the last one
-        if len(self.obstacles) > 0:
+        if self.obstacles:               # only one obstacle at a time
             return
-        
-        if random.random() > 0.85:
+        if random.random() > 0.15:      # 15% chance each frame
             return
-
         obstacle_type = random.choice(['small_cactus', 'large_cactus', 'bird'])
         if obstacle_type == 'small_cactus':
-            obstacle = SmallCactus(self.screen_size[0])
+            self.obstacles.append(SmallCactus(self.screen_size[0]))
         elif obstacle_type == 'large_cactus':
-            obstacle = LargeCactus(self.screen_size[0])
+            self.obstacles.append(LargeCactus(self.screen_size[0]))
         else:
-            obstacle = Bird(self.screen_size[0])
-        self.obstacles.append(obstacle)
+            self.obstacles.append(Bird(self.screen_size[0]))
 
 class Background:
+    Y_POS = 380
+
     def __init__(self):
-        self.image = ASSETS['Track']
-        self.x_pos = 0
-        self.y_pos = 380
-        self.width = self.image.get_width()
+        self.image  = ASSETS['Track']
+        self.x_pos  = 0
+        self.width  = self.image.get_width()
         self.height = self.image.get_height()
 
-    def draw(self, SCREEN):
-        SCREEN.blit(self.image, (self.x_pos, self.y_pos))
-        SCREEN.blit(self.image, (self.x_pos + self.width, self.y_pos))
+    def draw(self, SCREEN, simple_rects=False):
+        if simple_rects:
+            pygame.draw.rect(SCREEN, TRACK_COLOR,
+                             (0, self.Y_POS, SCREEN_WIDTH, self.height))
+        else:
+            SCREEN.blit(self.image, (self.x_pos, self.Y_POS))
+            SCREEN.blit(self.image, (self.x_pos + self.width, self.Y_POS))
 
     def update(self, game_speed):
         self.x_pos -= game_speed
@@ -190,260 +242,258 @@ class Background:
             self.x_pos = 0
 
 class Dinosaur:
-    X_POS = 80
-    Y_POS = 310
-    Y_POS_DUCK = 340
-    frames_per_image = 5  # Number of frames per image for running animation
+    X_POS        = 80
+    Y_POS        = 310
+    Y_POS_DUCK   = 340
+    FRAMES_PER_IMAGE = 5
+
+    RECT_SIZE_RUN  = (44, 47)
+    RECT_SIZE_DUCK = (59, 30)
+    RECT_SIZE_JUMP = (44, 47)
 
     def __init__(self, gravity, jump_velocity):
-        self.gravity = gravity
+        self.gravity       = gravity
         self.jump_velocity = jump_velocity
-        self.running_imgs = ASSETS['DinoRun']
-        self.jumping_img = ASSETS['DinoJump']
-        self.ducking_imgs = ASSETS['DinoDuck']
-        
-        self.state = 'run'  # Possible states: 'jumping', 'ducking', 'running'
-        self.y_velocity = 0 
+        self.running_imgs  = ASSETS['DinoRun']
+        self.jumping_img   = ASSETS['DinoJump']
+        self.ducking_imgs  = ASSETS['DinoDuck']
+
+        self.state      = 'running'
+        self.y_velocity = 0
         self.step_index = 0
-        self.dino_rect = self.running_imgs[0].get_rect()
+        self.dino_rect  = self.running_imgs[0].get_rect()
         self.dino_rect.x = self.X_POS
         self.dino_rect.y = self.Y_POS
+        self.image = self.running_imgs[0]
 
-        self.image = self.running_imgs[0]  # Initial image
-        
     def update(self, userInput):
         if self.state == 'jumping':
-            self.jump()
+            self._apply_gravity()
         elif userInput[pygame.K_UP] and self.dino_rect.y >= self.Y_POS:
-            self.state = 'jumping'
+            self.state      = 'jumping'
             self.y_velocity = -self.jump_velocity
-            self.image = self.jumping_img
-        elif userInput[pygame.K_DOWN] and self.dino_rect.y >= self.Y_POS:
+            self.image      = self.jumping_img
+        elif userInput[pygame.K_DOWN] and self.state != 'jumping':
             self.state = 'ducking'
             self.duck()
         else:
-            # If not jumping or ducking, determine if should run or stand up from duck
-            if self.dino_rect.y == self.Y_POS_DUCK:
-                # Stand up from duck
-                self.dino_rect.y = self.Y_POS
-                self.state = 'running'
-                self.run()
-            elif self.dino_rect.y == self.Y_POS:
-                self.state = 'running'
-                self.run()
+            self.state = 'running'
+            self.run()
 
-        if self.step_index >= 2 * self.frames_per_image:
+        if self.step_index >= 2 * self.FRAMES_PER_IMAGE:
             self.step_index = 0
 
-        # Update y position and velocity if jumping
-        if self.state == 'jumping':
-            self.dino_rect.y += self.y_velocity
-            # Use a smoother velocity curve by reducing gravity as the dino rises, and increasing as it falls
-            if self.y_velocity < 0:
-                self.y_velocity += self.gravity * 0.6  # slower rise
-            else:
-                self.y_velocity += self.gravity * 1  # faster fall
-            if self.dino_rect.y >= self.Y_POS:
-                self.dino_rect.y = self.Y_POS
-                self.y_velocity = 0
-                self.state = 'running'
-                self.run()
-
-    def jump(self):
+    def _apply_gravity(self):
         self.image = self.jumping_img
-        pass
+        self.dino_rect.y += self.y_velocity
+        if self.y_velocity < 0:
+            self.y_velocity += self.gravity * 0.6
+        else:
+            self.y_velocity += self.gravity * 1.0
+        if self.dino_rect.y >= self.Y_POS:
+            self.dino_rect.y = self.Y_POS
+            self.y_velocity  = 0
+            self.state       = 'running'
+            self.run()
 
     def duck(self):
-        img_index = (self.step_index // self.frames_per_image) % len(self.ducking_imgs)
-        self.image = self.ducking_imgs[img_index]
+        idx = (self.step_index // self.FRAMES_PER_IMAGE) % len(self.ducking_imgs)
+        self.image = self.ducking_imgs[idx]
         self.dino_rect = self.image.get_rect()
         self.dino_rect.x = self.X_POS
         self.dino_rect.y = self.Y_POS_DUCK
         self.step_index += 1
 
     def run(self):
-        img_index = (self.step_index // self.frames_per_image) % len(self.running_imgs)
-        self.image = self.running_imgs[img_index]
+        idx = (self.step_index // self.FRAMES_PER_IMAGE) % len(self.running_imgs)
+        self.image = self.running_imgs[idx]
         self.dino_rect = self.image.get_rect()
         self.dino_rect.x = self.X_POS
         self.dino_rect.y = self.Y_POS
         self.step_index += 1
 
-    def draw(self, SCREEN):
-        SCREEN.blit(self.image, (self.dino_rect.x, self.dino_rect.y))
-
+    def draw(self, SCREEN, simple_rects=False):
+        if simple_rects:
+            pygame.draw.rect(SCREEN, DINO_COLOR, self.dino_rect)
+        else:
+            SCREEN.blit(self.image, (self.dino_rect.x, self.dino_rect.y))
 
 class Obstacle:
-    def __init__(self, image, type, SCREEN_WIDTH):
-        self.image = image
-        self.type = type
-        self.rect = self.image[self.type].get_rect()
-        self.rect.x = SCREEN_WIDTH
+    RECT_COLOR = OBSTACLE_COLOR
+
+    def __init__(self, images, type_index, screen_width):
+        self.images = images
+        self.type   = type_index
+        self.rect   = self.images[self.type].get_rect()
+        self.rect.x = screen_width
 
     def update(self, game_speed):
         self.rect.x -= game_speed
 
-    def draw(self, SCREEN):
-        SCREEN.blit(self.image[self.type], self.rect)
+    def draw(self, SCREEN, simple_rects=False):
+        if simple_rects:
+            pygame.draw.rect(SCREEN, self.RECT_COLOR, self.rect)
+        else:
+            SCREEN.blit(self.images[self.type], self.rect)
 
 
 class SmallCactus(Obstacle):
-    image = ASSETS['CactusSmall']
-    def __init__(self, SCREEN_WIDTH):
-        self.type = 1
-        super().__init__(self.image, self.type, SCREEN_WIDTH)
+    RECT_COLOR = CACTUS_SMALL_COLOR
+
+    def __init__(self, screen_width):
+        super().__init__(ASSETS['CactusSmall'], 1, screen_width)
         self.rect.y = 325
 
 
 class LargeCactus(Obstacle):
-    image = ASSETS['CactusLarge']
-    def __init__(self, SCREEN_WIDTH):
-        self.type = 2
-        super().__init__(self.image, self.type, SCREEN_WIDTH)
+    RECT_COLOR = CACTUS_LARGE_COLOR
+
+    def __init__(self, screen_width):
+        super().__init__(ASSETS['CactusLarge'], 2, screen_width)
         self.rect.y = 300
 
 
 class Bird(Obstacle):
-    frames_per_image = 5  # Number of frames per image for running animation
-    image = ASSETS['Bird']
+    FRAMES_PER_IMAGE = 5
+    RECT_COLOR = BIRD_RECT_COLOR
 
-    def __init__(self, SCREEN_WIDTH):
-        self.type = 0
-        super().__init__(self.image, self.type, SCREEN_WIDTH)
+    def __init__(self, screen_width):
+        super().__init__(ASSETS['Bird'], 0, screen_width)
         self.rect.y = 250
-        self.index = 0
-        
+        self.index  = 0
 
-    def draw(self, SCREEN):
-        if self.index >= 2* self.frames_per_image:
-            self.index = 0
-        SCREEN.blit(self.image[self.index//self.frames_per_image], self.rect)
-        self.index += 1
+    def draw(self, SCREEN, simple_rects=False):
+        if simple_rects:
+            pygame.draw.rect(SCREEN, self.RECT_COLOR, self.rect)
+        else:
+            if self.index >= 2 * self.FRAMES_PER_IMAGE:
+                self.index = 0
+            SCREEN.blit(self.images[self.index // self.FRAMES_PER_IMAGE], self.rect)
+            self.index += 1
 
-
-
-# Cast rays to simulate the dinosaur's vision
-class RayCast():
+class RayCast:
     def __init__(self, x, y, angle, length):
-        self.x = x
-        self.y = y
-        self.angle = angle
+        self.x      = x
+        self.y      = y
+        self.angle  = angle
         self.length = length
+
     def cast(self):
         end_x = self.x + self.length * math.cos(self.angle)
         end_y = self.y + self.length * math.sin(self.angle)
-        return (end_x, end_y)
+        return end_x, end_y
+
     def draw(self, SCREEN):
         end_x, end_y = self.cast()
-        pygame.draw.line(SCREEN, (255, 0, 0), (self.x, self.y), (end_x, end_y), 2)
-        pygame.draw.line(SCREEN, (255, 0, 0), (self.x, self.y), (end_x, end_y), 2)
-    def get_intersection_position(self, obstacle):
-        # Calculate the intersection point between the ray and the obstacle (rectangle)
-        ray_start = (self.x, self.y)
-        ray_end = self.cast()
-        rect = obstacle.rect
-
-        # Define the four edges of the rectangle as line segments
-        edges = [
-            ((rect.left, rect.top), (rect.right, rect.top)),     # Top edge
-            ((rect.right, rect.top), (rect.right, rect.bottom)), # Right edge
-            ((rect.right, rect.bottom), (rect.left, rect.bottom)), # Bottom edge
-            ((rect.left, rect.bottom), (rect.left, rect.top)),   # Left edge
-        ]
-
-        closest_intersection = None
-        min_dist = float('inf')
-
-        for edge_start, edge_end in edges:
-            intersection = self.line_intersection(ray_start, ray_end, edge_start, edge_end)
-            if intersection:
-                dist = math.hypot(intersection[0] - self.x, intersection[1] - self.y)
-                if dist < min_dist:
-                    min_dist = dist
-                    closest_intersection = intersection
-
-        return closest_intersection
-
-    def line_intersection(self, p1, p2, q1, q2):
-        # Returns the intersection point of line segments p1-p2 and q1-q2, or None if they don't intersect
-        x1, y1 = p1
-        x2, y2 = p2
-        x3, y3 = q1
-        x4, y4 = q2
-
-        denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-        if denom == 0:
-            return None  # Parallel lines
-
-        t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
-        u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
-
-        if 0 <= t <= 1 and 0 <= u <= 1:
-            intersection_x = x1 + t * (x2 - x1)
-            intersection_y = y1 + t * (y2 - y1)
-            return (intersection_x, intersection_y)
-        return None
-    
-    def attenuate(self, color, distance):
-        # Attenuate the color based on the distance
-        attenuation_factor = max(0, 1 - (distance / RAY_LENGTH))
-        return tuple(int(c * attenuation_factor) for c in color)
-    
-    def draw_intersection(self, SCREEN, obstacle, draw = True, return_color = False):
-        if obstacle is None:
-            # If ray goes downwards, draw intersection at height 100
-            if self.angle > 0:
-                y_inter = 392
-                x_inter = self.x + (y_inter - self.y) / math.tan(self.angle)
-                intersection = (x_inter, y_inter)
-                color = FLOOR_COLOR
-            else:
-                # If it goes upwards, draw intersection at the end of the ray
-                intersection = self.cast()
-                color = SKY_COLOR
-                return color
-        else:
-            # If there is an obstacle, get the intersection position
-            intersection = self.get_intersection_position(obstacle)
-            if obstacle.type == 0:
-                color = BIRD_COLOR
-            else:
-                color = OBSTACLE_COLOR
-
-        print(color)
-        if intersection and draw:
-            pygame.draw.circle(SCREEN, (0, 255, 0), (int(intersection[0]), int(intersection[1])), 5)
-        if return_color:
-            print(color)
-            return self.attenuate(color, math.hypot(intersection[0] - self.x, intersection[1] - self.y))
-
+        pygame.draw.line(SCREEN, (255, 80, 80),
+                         (self.x, self.y), (int(end_x), int(end_y)), 1)
 
     def find_first_obstacle(self, obstacles):
+        closest      = None
+        closest_dist = float('inf')
         for obstacle in obstacles:
-            intersection = self.get_intersection_position(obstacle)
-            if intersection:
-                dist = math.hypot(intersection[0] - self.x, intersection[1] - self.y)
-                if dist < RAY_LENGTH:
-                    return obstacle
+            pt = self.get_intersection_position(obstacle)
+            if pt is not None:
+                dist = math.hypot(pt[0] - self.x, pt[1] - self.y)
+                if dist < closest_dist:
+                    closest_dist = dist
+                    closest      = obstacle
+        return closest
+
+    def get_intersection_position(self, obstacle):
+        ray_start = (self.x, self.y)
+        ray_end   = self.cast()
+        rect      = obstacle.rect
+        edges = [
+            ((rect.left,  rect.top),    (rect.right, rect.top)),
+            ((rect.right, rect.top),    (rect.right, rect.bottom)),
+            ((rect.right, rect.bottom), (rect.left,  rect.bottom)),
+            ((rect.left,  rect.bottom), (rect.left,  rect.top)),
+        ]
+        closest, min_dist = None, float('inf')
+        for e0, e1 in edges:
+            pt = self._line_intersection(ray_start, ray_end, e0, e1)
+            if pt:
+                d = math.hypot(pt[0] - self.x, pt[1] - self.y)
+                if d < min_dist:
+                    min_dist = d
+                    closest  = pt
+        return closest
+
+    @staticmethod
+    def _line_intersection(p1, p2, q1, q2):
+        x1, y1 = p1; x2, y2 = p2
+        x3, y3 = q1; x4, y4 = q2
+        denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        if denom == 0:
+            return None
+        t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+        u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+        if 0 <= t <= 1 and 0 <= u <= 1:
+            return x1 + t * (x2 - x1), y1 + t * (y2 - y1)
         return None
 
+    def _attenuate(self, color, distance):
+        factor = max(0.0, 1.0 - distance / RAY_LENGTH)
+        return tuple(int(c * factor) for c in color)
+
+    def draw_intersection(self, SCREEN, obstacle, draw=True, return_color=False):
+        if obstacle is None:
+            if self.angle > 0:                       # ray points downward → hits floor
+                y_inter = 392
+                denom = math.tan(self.angle)
+                if abs(denom) < 1e-9:
+                    return np.zeros(3)
+                x_inter = self.x + (y_inter - self.y) / denom
+                intersection = (x_inter, y_inter)
+                color = FLOOR_COLOR
+            else:                                    # ray points upward → sky
+                if return_color:
+                    return np.array(SKY_COLOR, dtype=float)
+                return None
+        else:
+            intersection = self.get_intersection_position(obstacle)
+            if intersection is None:
+                return np.zeros(3)
+            color = BIRD_COLOR if obstacle.type == 0 else OBSTACLE_COLOR
+
+        if intersection and draw:
+            pygame.draw.circle(SCREEN, (0, 220, 0),
+                               (int(intersection[0]), int(intersection[1])), 4)
+        if return_color:
+            dist = math.hypot(intersection[0] - self.x, intersection[1] - self.y)
+            return np.array(self._attenuate(color, dist), dtype=float)
+        return None
 
 def play_game():
     pygame.init()
-    game = DinoGame()
+
+    vis = VisualizationConfig(
+        show_rays=False,
+        show_vision=False,
+        simple_rects=False,
+        show_help=True,
+    )
+
+    load_assets()
+    game  = DinoGame(vis_config=vis)
     clock = pygame.time.Clock()
-    
+
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-        
+            elif event.type == pygame.KEYDOWN:
+                vis.handle_keydown(event)
+
         userInput = pygame.key.get_pressed()
         game.update(userInput)
-        game.render(show_rays=True,show_vision=True)
+        game.render()
         clock.tick(30)
 
     pygame.quit()
 
-play_game()
+
+if __name__ == "__main__":
+    play_game()
