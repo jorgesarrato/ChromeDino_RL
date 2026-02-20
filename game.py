@@ -13,6 +13,13 @@ OBSTACLE_COLOR = (255, 0, 0)
 BIRD_COLOR = (0, 0, 255)
 SKY_COLOR = (255, 255, 255)
 
+INIT_SPEED = 15
+MAX_SPEED = 50
+SPEED_INC = 0.01
+
+SCREEN_WIDTH = 1100
+SCREEN_HEIGHT = 600
+
 N_RAYS = 33
 RAY_LENGTH = 800
 FOV = 60  # Field of View in degrees
@@ -40,10 +47,10 @@ ASSETS = {'DinoRun': [pygame.image.load(os.path.join("Assets/Dino", "DinoRun1.pn
 class DinoGame:
     def __init__(self):
         self.time = 0 
-        self.game_speed = 10
-        self.jump_velocity = 20
-        self.gravity = 2
-        self.screen_size = (1100, 600)
+        self.game_speed = INIT_SPEED
+        self.jump_velocity = 25
+        self.gravity = 3
+        self.screen_size = (SCREEN_WIDTH, 600)
         self.dinosaur = Dinosaur(self.gravity, self.jump_velocity)
         self.background = Background()
         self.obstacles = []
@@ -113,6 +120,7 @@ class DinoGame:
             self.done = True
             self.lose()
         self.time += 1
+        self.game_speed = min([self.game_speed+SPEED_INC, MAX_SPEED])
             
     def get_observation(self):
         vision = self.get_vision(self.SCREEN, draw=False, return_color=True)
